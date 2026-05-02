@@ -124,6 +124,8 @@ local function SpawnBuyer()
     local off = Config.BuyerNPC.offset
     local x, y, z = c.x + off.x, c.y + off.y, c.z + off.z
 
+    print('[yn-chopshop] Spawneando NPC comprador en:', x, y, z)
+
     local hash = LoadModel(Config.BuyerNPC.model)
     if not hash then
         print('[yn-chopshop] ERROR: No se pudo cargar modelo del comprador:', Config.BuyerNPC.model)
@@ -131,12 +133,24 @@ local function SpawnBuyer()
     end
 
     buyerPed = CreatePed(4, hash, x, y, z, c.w, false, true)
+
+    -- Esperar a que el juego registre la entidad antes de configurarla
+    local deadline = GetGameTimer() + 3000
+    while not DoesEntityExist(buyerPed) and GetGameTimer() < deadline do
+        Wait(50)
+    end
+
+    if not DoesEntityExist(buyerPed) then
+        print('[yn-chopshop] ERROR: CreatePed falló para el NPC comprador')
+        SetModelAsNoLongerNeeded(hash)
+        return
+    end
+
     FreezeEntityPosition(buyerPed, true)
     SetEntityInvincible(buyerPed, true)
     SetBlockingOfNonTemporaryEvents(buyerPed, true)
     SetModelAsNoLongerNeeded(hash)
 
-    -- IMPORTANTE: 'name' requerido en ox_target v3+
     exports.ox_target:addLocalEntity(buyerPed, {
         {
             name     = 'yn_chopshop_sell_part',
@@ -152,7 +166,7 @@ local function SpawnBuyer()
         }
     })
 
-    Log('Comprador spawneado. Entity:', buyerPed)
+    print('[yn-chopshop] NPC comprador listo. Entity:', buyerPed)
 end
 
 local function DespawnBuyer()
@@ -284,6 +298,8 @@ local function DeliverVehicle()
         return
     end
 
+    print('[yn-chopshop] DeliverVehicle iniciado. Sacando al jugador del vehículo...')
+
     TaskLeaveVehicle(ped, job.vehicle, 0)
     Wait(1500)
 
@@ -353,8 +369,8 @@ CreateThread(function()
                     lib.showTextUI(_U('deliver_vehicle'))
                     showingDelivUI = true
                 end
-                -- Tecla E (38) para confirmar entrega
-                if IsControlJustReleased(0, 38) then
+                -- Tecla E = INPUT_CONTEXT (51) para confirmar entrega
+                if IsControlJustReleased(0, 51) then
                     lib.hideTextUI()
                     showingDelivUI = false
                     CreateThread(DeliverVehicle)
