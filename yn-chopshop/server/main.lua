@@ -1,3 +1,5 @@
+print('[yn-chopshop] Servidor cargando...')
+
 -- ─── Framework ───────────────────────────────────────────────────────────────
 
 local Framework     = nil
@@ -19,6 +21,9 @@ CreateThread(function()
     elseif FrameworkName == 'qbcore' then
         Framework = exports['qb-core']:GetCoreObject()
     end
+
+    print('[yn-chopshop] Framework detectado:', FrameworkName or 'ninguno')
+    print('[yn-chopshop] Servidor listo. Zonas configuradas:', #Config.SpawnZones)
 end)
 
 -- ─── Helpers ─────────────────────────────────────────────────────────────────

@@ -1,22 +1,24 @@
+print('[yn-chopshop] Cliente cargando...')
+
 -- ─── Estado del trabajo ───────────────────────────────────────────────────────
 
 local job = {
     active        = false,
-    vehicle       = nil,   -- entidad del vehículo robado
+    vehicle       = nil,
     netId         = nil,
-    atChopShop    = false, -- true cuando ya entregó el vehículo
-    removed       = {},    -- [partId] = true: pieza quitada del vehículo
-    sold          = {},    -- [partId] = true: pieza vendida al comprador
-    heldPartId    = nil,   -- pieza que lleva en la mano ahora mismo
-    heldPropEnt   = nil,   -- entidad del prop adjunto
+    atChopShop    = false,
+    removed       = {},
+    sold          = {},
+    heldPartId    = nil,
+    heldPropEnt   = nil,
     policeAlerted = false,
     totalEarned   = 0,
-    removing      = false, -- animación de desmontaje activa
+    removing      = false,
 }
 
-local blips        = { vehicle = nil, zone = nil, shop = nil }
-local buyerPed     = nil
-local deliveryZone = nil
+local blips           = { vehicle = nil, zone = nil, shop = nil }
+local buyerPed        = nil
+local showingDelivUI  = false  -- estado del TextUI de entrega
 
 -- ─── Debug ────────────────────────────────────────────────────────────────────
 
@@ -114,7 +116,7 @@ local function DetachProp()
     job.heldPartId  = nil
 end
 
--- ─── NPC comprador ────────────────────────────────────────────────────────────
+-- ─── NPC comprador del desguace ───────────────────────────────────────────────
 
 local function SpawnBuyer()
     local c   = Config.ChopShop.coords
@@ -122,7 +124,10 @@ local function SpawnBuyer()
     local x, y, z = c.x + off.x, c.y + off.y, c.z + off.z
 
     local hash = LoadModel(Config.BuyerNPC.model)
-    if not hash then return end
+    if not hash then
+        print('[yn-chopshop] ERROR: No se pudo cargar modelo del comprador:', Config.BuyerNPC.model)
+        return
+    end
 
     buyerPed = CreatePed(4, hash, x, y, z, c.w, false, true)
     FreezeEntityPosition(buyerPed, true)
@@ -130,19 +135,23 @@ local function SpawnBuyer()
     SetBlockingOfNonTemporaryEvents(buyerPed, true)
     SetModelAsNoLongerNeeded(hash)
 
+    -- IMPORTANTE: 'name' requerido en ox_target v3+
     exports.ox_target:addLocalEntity(buyerPed, {
         {
+            name     = 'yn_chopshop_sell_part',
             label    = _U('sell_part'),
             icon     = 'fas fa-hand-holding-usd',
             distance = Config.TargetDistance,
-            onSelect = SellCurrentPart,
+            onSelect = function()
+                SellCurrentPart()
+            end,
             canInteract = function()
                 return job.heldPartId ~= nil and not job.removing
             end,
         }
     })
 
-    Log('Comprador spawneado')
+    Log('Comprador spawneado. Entity:', buyerPed)
 end
 
 local function DespawnBuyer()
@@ -153,18 +162,23 @@ local function DespawnBuyer()
     buyerPed = nil
 end
 
--- ─── Targets del vehículo ────────────────────────────────────────────────────
+-- ─── Targets de desmontaje en el vehículo ────────────────────────────────────
 
 local function AddVehicleTargets(vehicle)
     local options = {}
     for _, part in ipairs(Config.Parts) do
         local p = part
         table.insert(options, {
+            -- IMPORTANTE: 'name' único por pieza, requerido en ox_target v3+
+            name     = 'yn_chopshop_remove_' .. p.id,
             label    = _U('remove_part', p.label),
             icon     = 'fas fa-tools',
             distance = Config.TargetDistance,
             onSelect = function()
-                StartRemovePart(vehicle, p)
+                -- ox_target callback: crear thread propio para permitir Wait/progressBar
+                CreateThread(function()
+                    StartRemovePart(vehicle, p)
+                end)
             end,
             canInteract = function()
                 return not job.removing
@@ -175,44 +189,12 @@ local function AddVehicleTargets(vehicle)
         })
     end
     exports.ox_target:addLocalEntity(vehicle, options)
+    Log('Targets de desmontaje añadidos al vehículo')
 end
 
 local function RemoveVehicleTargets(vehicle)
     if vehicle and DoesEntityExist(vehicle) then
         exports.ox_target:removeLocalEntity(vehicle)
-    end
-end
-
--- ─── Zona de entrega ─────────────────────────────────────────────────────────
-
-local function AddDeliveryZone()
-    local c = Config.ChopShop.coords
-    deliveryZone = exports.ox_target:addSphereZone({
-        name    = 'yn_chopshop_delivery',
-        coords  = vec3(c.x, c.y, c.z),
-        radius  = Config.ChopShop.radius,
-        debug   = Config.Debug,
-        options = {
-            {
-                label    = _U('deliver_vehicle'),
-                icon     = 'fas fa-car',
-                distance = Config.ChopShop.radius,
-                onSelect = DeliverVehicle,
-                canInteract = function()
-                    return job.active
-                        and not job.atChopShop
-                        and IsPedInAnyVehicle(PlayerPedId(), false)
-                        and GetVehiclePedIsIn(PlayerPedId(), false) == job.vehicle
-                end,
-            }
-        },
-    })
-end
-
-local function RemoveDeliveryZone()
-    if deliveryZone then
-        exports.ox_target:removeZone(deliveryZone)
-        deliveryZone = nil
     end
 end
 
@@ -254,12 +236,11 @@ function StartRemovePart(vehicle, partCfg)
 
     if not ok then return end
 
-    -- Aplicar efecto visual en el vehículo
+    -- Efecto visual en el vehículo
     if partCfg.type == 'door' then
         SetVehicleDoorBroken(vehicle, partCfg.index, true)
     elseif partCfg.type == 'wheel' then
         SetVehicleTyreBurst(vehicle, partCfg.index, true, 1000.0)
-        -- Intenta hacer la rueda invisible (nativo disponible en builds recientes)
         pcall(function() SetVehicleWheelBroken(vehicle, partCfg.index, true) end)
     end
 
@@ -267,13 +248,12 @@ function StartRemovePart(vehicle, partCfg)
     job.heldPartId           = partCfg.id
     AttachProp(partCfg)
 
-    -- Alertar a la policía la primera vez
+    -- Primera pieza → alerta policial
     if not job.policeAlerted then
         job.policeAlerted = true
         TriggerServerEvent('yn-chopshop:server:policeAlert', GetEntityCoords(vehicle))
     end
 
-    -- Notificar al servidor para validar y registrar
     TriggerServerEvent('yn-chopshop:server:partRemoved', partCfg.id, job.netId)
 
     lib.notify({ title = _U('part_removed', partCfg.label), type = 'success' })
@@ -288,40 +268,33 @@ function SellCurrentPart()
         return
     end
     if job.removing then return end
-
     TriggerServerEvent('yn-chopshop:server:sellPart', job.heldPartId)
 end
 
 -- ─── Entrega del vehículo al desguace ────────────────────────────────────────
+-- Llamada desde un CreateThread para poder usar Wait() sin bloquear callbacks
 
-function DeliverVehicle()
+local function DeliverVehicle()
     if not job.active or job.atChopShop then return end
 
     local ped = PlayerPedId()
-    if GetVehiclePedIsIn(ped, false) ~= job.vehicle then
+    if not IsPedInAnyVehicle(ped, false) or GetVehiclePedIsIn(ped, false) ~= job.vehicle then
         lib.notify({ title = _U('must_be_in_vehicle'), type = 'error' })
         return
     end
 
-    -- Sacar al jugador del vehículo
     TaskLeaveVehicle(ped, job.vehicle, 0)
     Wait(1500)
 
-    -- Bloquear el vehículo para que nadie pueda montarse
     SetVehicleDoorsLocked(job.vehicle, 10)
     SetVehicleEngineOn(job.vehicle, false, true, false)
 
     job.atChopShop = true
 
-    -- Limpiar blips de búsqueda
     blips.vehicle = ClearBlip(blips.vehicle)
     blips.zone    = ClearBlip(blips.zone)
 
-    -- Eliminar zona de entrega y añadir targets al vehículo
-    RemoveDeliveryZone()
     AddVehicleTargets(job.vehicle)
-
-    -- Spawnar NPC comprador
     SpawnBuyer()
 
     lib.notify({ title = _U('vehicle_delivered'), type = 'success', duration = 8000 })
@@ -331,29 +304,18 @@ end
 -- ─── Finalizar trabajo ────────────────────────────────────────────────────────
 
 local function FinishJob()
-    lib.notify({
-        title    = _U('all_parts_sold'),
-        type     = 'success',
-        duration = 6000,
-    })
-
+    lib.notify({ title = _U('all_parts_sold'), type = 'success', duration = 6000 })
     Wait(1000)
+    lib.notify({ title = _U('job_complete', tostring(job.totalEarned)), type = 'success', duration = 8000 })
 
-    lib.notify({
-        title    = _U('job_complete', job.totalEarned),
-        type     = 'success',
-        duration = 8000,
-    })
-
-    -- Eliminar vehículo y limpiar
     if job.vehicle and DoesEntityExist(job.vehicle) then
         RemoveVehicleTargets(job.vehicle)
         DeleteEntity(job.vehicle)
     end
 
     DespawnBuyer()
+    DetachProp()
 
-    -- Resetear estado
     blips.shop = ClearBlip(blips.shop)
 
     job.active        = false
@@ -367,26 +329,93 @@ local function FinishJob()
     job.totalEarned   = 0
     job.removing      = false
 
-    DetachProp()
     Log('Trabajo finalizado')
 end
+
+-- ─── Thread: Entrega del vehículo (TextUI + tecla E) ─────────────────────────
+-- Usando TextUI en lugar de ox_target zone porque ox_target no funciona
+-- de forma fiable cuando el jugador está dentro de un vehículo.
+
+CreateThread(function()
+    while true do
+        if job.active and not job.atChopShop then
+            local ped      = PlayerPedId()
+            local c        = Config.ChopShop.coords
+            local dist     = #(GetEntityCoords(ped) - vec3(c.x, c.y, c.z))
+            local inTarget = IsPedInAnyVehicle(ped, false)
+                             and GetVehiclePedIsIn(ped, false) == job.vehicle
+
+            if dist < Config.ChopShop.radius and inTarget then
+                if not showingDelivUI then
+                    lib.showTextUI(_U('deliver_vehicle'))
+                    showingDelivUI = true
+                end
+                -- Tecla E (38) para confirmar entrega
+                if IsControlJustReleased(0, 38) then
+                    lib.hideTextUI()
+                    showingDelivUI = false
+                    CreateThread(DeliverVehicle)
+                end
+                Wait(0)
+            else
+                if showingDelivUI then
+                    lib.hideTextUI()
+                    showingDelivUI = false
+                end
+                -- Espera más corta cuando se está aproximando
+                Wait(dist < Config.ChopShop.radius * 4 and 200 or 1000)
+            end
+        else
+            if showingDelivUI then
+                lib.hideTextUI()
+                showingDelivUI = false
+            end
+            Wait(1000)
+        end
+    end
+end)
+
+-- ─── Thread: Marcador visual del desguace ────────────────────────────────────
+
+CreateThread(function()
+    while true do
+        if job.active and not job.atChopShop then
+            local c = Config.ChopShop.coords
+            DrawMarker(
+                1,
+                c.x, c.y, c.z,
+                0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0,
+                Config.ChopShop.radius * 2.0,
+                Config.ChopShop.radius * 2.0,
+                0.8,
+                255, 140, 0, 80,
+                false, false, 2, false, nil, nil, false
+            )
+            Wait(0)
+        else
+            Wait(1000)
+        end
+    end
+end)
 
 -- ─── Spawn del vehículo (orden del servidor) ──────────────────────────────────
 
 RegisterNetEvent('yn-chopshop:client:spawnVehicle', function(data)
+    Log('Spawneando vehículo:', data.model, 'en', data.x, data.y, data.z)
+
     local hash = LoadModel(data.model)
     if not hash then
+        print('[yn-chopshop] ERROR: No se pudo cargar el modelo del vehículo:', data.model)
         TriggerServerEvent('yn-chopshop:server:spawnFailed')
         return
     end
 
-    -- Spawn en la coordenada exacta configurada en Config.SpawnZones
     local vehicle = CreateVehicle(hash, data.x, data.y, data.z, data.heading, true, false)
     SetVehicleEngineOn(vehicle, false, true, false)
     SetVehicleDoorsLocked(vehicle, 1)
     SetModelAsNoLongerNeeded(hash)
 
-    -- Esperar que el vehículo sea registrado en la red
     local netId    = 0
     local deadline = GetGameTimer() + 6000
     while (not netId or netId == 0) and GetGameTimer() < deadline do
@@ -395,6 +424,7 @@ RegisterNetEvent('yn-chopshop:client:spawnVehicle', function(data)
     end
 
     if not netId or netId == 0 then
+        print('[yn-chopshop] ERROR: No se pudo obtener netId del vehículo')
         DeleteEntity(vehicle)
         TriggerServerEvent('yn-chopshop:server:spawnFailed')
         return
@@ -406,9 +436,10 @@ end)
 
 -- ─── Inicio del trabajo ───────────────────────────────────────────────────────
 
--- zoneCx/Cy/Cz/zoneRadius: datos de la zona seleccionada, enviados por el servidor
 RegisterNetEvent('yn-chopshop:client:startJob', function(netId, spawnX, spawnY, spawnZ, zoneCx, zoneCy, zoneCz, zoneRadius)
     if job.active then return end
+
+    Log('Iniciando trabajo. NetId:', netId)
 
     job.active        = true
     job.netId         = netId
@@ -418,7 +449,6 @@ RegisterNetEvent('yn-chopshop:client:startJob', function(netId, spawnX, spawnY, 
     job.totalEarned   = 0
     job.atChopShop    = false
 
-    -- Esperar que la entidad del vehículo exista localmente
     local vehicle  = nil
     local deadline = GetGameTimer() + 10000
     while (not vehicle or not DoesEntityExist(vehicle)) and GetGameTimer() < deadline do
@@ -427,6 +457,7 @@ RegisterNetEvent('yn-chopshop:client:startJob', function(netId, spawnX, spawnY, 
     end
 
     if not vehicle or not DoesEntityExist(vehicle) then
+        print('[yn-chopshop] ERROR: No se pudo obtener el vehículo con netId:', netId)
         job.active = false
         lib.notify({ title = _U('no_active_job'), type = 'error' })
         return
@@ -434,35 +465,31 @@ RegisterNetEvent('yn-chopshop:client:startJob', function(netId, spawnX, spawnY, 
 
     job.vehicle = vehicle
 
-    -- Blip del radio de la zona seleccionada + blip exacto del vehículo
     blips.zone    = MakeZoneBlip(zoneCx, zoneCy, zoneCz, zoneRadius)
     blips.vehicle = MakeVehicleBlip(vec3(spawnX, spawnY, spawnZ))
     blips.shop    = MakeShopBlip()
 
-    -- Añadir zona de entrega en el desguace
-    AddDeliveryZone()
-
     lib.notify({ title = _U('job_accepted'), type = 'success', duration = 8000 })
-    Log('Trabajo iniciado. NetId:', netId)
+    Log('Trabajo iniciado correctamente. Vehículo entity:', vehicle)
 end)
 
 -- ─── Pieza vendida (confirmación del servidor) ────────────────────────────────
 
 RegisterNetEvent('yn-chopshop:client:partSold', function(partId, reward, allSold)
-    job.sold[partId]  = true
-    job.totalEarned   = job.totalEarned + reward
+    job.sold[partId] = true
+    job.totalEarned  = job.totalEarned + reward
 
     DetachProp()
 
     lib.notify({ title = _U('part_sold', reward), type = 'success' })
-    Log('Pieza vendida:', partId, 'Recompensa:', reward)
+    Log('Pieza vendida:', partId, '| Recompensa:', reward, '| Todas vendidas:', allSold)
 
     if allSold then
-        FinishJob()
+        CreateThread(FinishJob)
     end
 end)
 
--- ─── Trabajo no disponible ────────────────────────────────────────────────────
+-- ─── Respuestas del servidor ──────────────────────────────────────────────────
 
 RegisterNetEvent('yn-chopshop:client:jobUnavailable', function()
     lib.notify({ title = _U('job_unavailable'), type = 'error' })
@@ -476,40 +503,16 @@ RegisterNetEvent('yn-chopshop:client:alreadyInJob', function()
     lib.notify({ title = _U('job_already_active'), type = 'warning' })
 end)
 
--- ─── Thread: Marcador visual en el desguace ───────────────────────────────────
--- Dibuja un cilindro en el suelo solo cuando el jugador tiene trabajo activo
--- y aún no ha entregado el vehículo.
-
-CreateThread(function()
-    while true do
-        if job.active and not job.atChopShop then
-            local c = Config.ChopShop.coords
-            DrawMarker(
-                1,                  -- tipo: cilindro
-                c.x, c.y, c.z,
-                0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0,
-                Config.ChopShop.radius * 2.0,
-                Config.ChopShop.radius * 2.0,
-                0.8,
-                255, 140, 0, 80,    -- color naranja semitransparente
-                false, false, 2, false, nil, nil, false
-            )
-            Wait(0)
-        else
-            Wait(1000)
-        end
-    end
-end)
-
 -- ─── Limpieza al detener el recurso ──────────────────────────────────────────
 
 AddEventHandler('onResourceStop', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
+    if showingDelivUI then lib.hideTextUI() end
     DetachProp()
     DespawnBuyer()
-    RemoveDeliveryZone()
     if job.vehicle and DoesEntityExist(job.vehicle) then
         RemoveVehicleTargets(job.vehicle)
     end
 end)
+
+print('[yn-chopshop] Cliente cargado correctamente.')
