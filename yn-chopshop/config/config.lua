@@ -15,19 +15,55 @@ Config.JobNPC = {
     label  = 'Contacto',
 }
 
--- ─── Zona de búsqueda del vehículo ───────────────────────────────────────────
-Config.SearchZone = {
-    center = vector3(400.0, -1600.0, 29.0),
-    radius = 250.0,
-}
-
--- Mostrar blip específico del vehículo (false = solo se muestra el radio de búsqueda)
-Config.ShowVehicleBlip = true
-
--- Lista de vehículos que pueden aparecer
+-- ─── Vehículos que pueden aparecer (aleatorio global) ────────────────────────
 Config.Vehicles = {
     'sultan', 'kuruma', 'tailgater', 'schafter2',
     'fugitive', 'oracle2', 'jackal', 'sentinel',
+}
+
+-- ─── Zonas de aparición del vehículo ─────────────────────────────────────────
+-- Al iniciar la misión se escoge una zona aleatoriamente.
+-- Dentro de la zona elegida se elige un punto de spawn al azar.
+-- El modelo del vehículo se elige aleatoriamente de Config.Vehicles (lista global).
+--
+-- Campos por zona:
+--   label  → nombre identificativo (solo para debug/logs)
+--   center → vector3 centro del círculo que se pinta en el mapa
+--   radius → radio del círculo del mapa (no afecta al spawn)
+--   spawns → array de vector4(x, y, z, heading): coordenadas exactas de spawn
+Config.SpawnZones = {
+    {
+        label  = 'Zona Centro',
+        center = vector3(200.0, -800.0, 31.0),
+        radius = 250.0,
+        spawns = {
+            vector4(185.0, -780.0, 31.0, 180.0),
+            vector4(210.0, -810.0, 31.0,  90.0),
+            vector4(195.0, -830.0, 31.0, 270.0),
+            vector4(220.0, -795.0, 31.0,   0.0),
+        },
+    },
+    {
+        label  = 'Zona Puerto',
+        center = vector3(-680.0, -1270.0, 5.0),
+        radius = 200.0,
+        spawns = {
+            vector4(-660.0, -1260.0, 5.0,   0.0),
+            vector4(-695.0, -1285.0, 5.0,  90.0),
+            vector4(-670.0, -1300.0, 5.0, 180.0),
+            vector4(-650.0, -1275.0, 5.0, 270.0),
+        },
+    },
+    {
+        label  = 'Zona Vinewood',
+        center = vector3(-150.0, -1250.0, 35.0),
+        radius = 180.0,
+        spawns = {
+            vector4(-140.0, -1240.0, 35.0,  90.0),
+            vector4(-160.0, -1260.0, 35.0, 270.0),
+            vector4(-130.0, -1270.0, 35.0, 180.0),
+        },
+    },
 }
 
 -- ─── Zona de entrega (desguace) ──────────────────────────────────────────────
