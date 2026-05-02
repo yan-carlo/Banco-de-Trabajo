@@ -111,7 +111,7 @@ RegisterNetEvent('yn-chopshop:server:requestJob', function()
     -- Seleccionar zona aleatoria y dentro de ella un punto de spawn aleatorio
     local zone       = Config.SpawnZones[math.random(#Config.SpawnZones)]
     local spawnPoint = zone.spawns[math.random(#zone.spawns)]
-    local model      = zone.vehicles[math.random(#zone.vehicles)]
+    local model      = Config.Vehicles[math.random(#Config.Vehicles)]
 
     -- Marcar trabajo como pendiente de spawn
     activeJob = {
