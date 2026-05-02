@@ -66,8 +66,8 @@ local function MakeVehicleBlip(coords)
     return b
 end
 
-local function MakeZoneBlip(coords)
-    local b = AddBlipForRadius(coords.x, coords.y, coords.z, Config.SearchZone.radius)
+local function MakeZoneBlip(cx, cy, cz, radius)
+    local b = AddBlipForRadius(cx, cy, cz, radius)
     SetBlipColour(b, Config.Blips.searchZone.color)
     SetBlipAlpha(b, 80)
     return b
@@ -380,16 +380,14 @@ RegisterNetEvent('yn-chopshop:client:spawnVehicle', function(data)
         return
     end
 
-    -- Buscar nodo de carretera más cercano al punto aleatorio
-    local roadX, roadY, roadZ = GetClosestVehicleNode(data.x, data.y, data.z, 1)
-
-    local vehicle = CreateVehicle(hash, roadX, roadY, roadZ, math.random(0, 359) * 1.0, true, false)
+    -- Spawn en la coordenada exacta configurada en Config.SpawnZones
+    local vehicle = CreateVehicle(hash, data.x, data.y, data.z, data.heading, true, false)
     SetVehicleEngineOn(vehicle, false, true, false)
     SetVehicleDoorsLocked(vehicle, 1)
     SetModelAsNoLongerNeeded(hash)
 
     -- Esperar que el vehículo sea registrado en la red
-    local netId   = 0
+    local netId    = 0
     local deadline = GetGameTimer() + 6000
     while (not netId or netId == 0) and GetGameTimer() < deadline do
         Wait(100)
@@ -402,13 +400,14 @@ RegisterNetEvent('yn-chopshop:client:spawnVehicle', function(data)
         return
     end
 
-    TriggerServerEvent('yn-chopshop:server:vehicleSpawned', netId, roadX, roadY, roadZ)
+    TriggerServerEvent('yn-chopshop:server:vehicleSpawned', netId, data.x, data.y, data.z)
     Log('Vehículo spawneado. NetId:', netId)
 end)
 
 -- ─── Inicio del trabajo ───────────────────────────────────────────────────────
 
-RegisterNetEvent('yn-chopshop:client:startJob', function(netId, spawnX, spawnY, spawnZ)
+-- zoneCx/Cy/Cz/zoneRadius: datos de la zona seleccionada, enviados por el servidor
+RegisterNetEvent('yn-chopshop:client:startJob', function(netId, spawnX, spawnY, spawnZ, zoneCx, zoneCy, zoneCz, zoneRadius)
     if job.active then return end
 
     job.active        = true
@@ -435,13 +434,10 @@ RegisterNetEvent('yn-chopshop:client:startJob', function(netId, spawnX, spawnY, 
 
     job.vehicle = vehicle
 
-    -- Crear blips
-    local spawnCoords = vec3(spawnX, spawnY, spawnZ)
-    blips.zone = MakeZoneBlip(Config.SearchZone.center)
-    if Config.ShowVehicleBlip then
-        blips.vehicle = MakeVehicleBlip(spawnCoords)
-    end
-    blips.shop = MakeShopBlip()
+    -- Blip del radio de la zona seleccionada + blip exacto del vehículo
+    blips.zone    = MakeZoneBlip(zoneCx, zoneCy, zoneCz, zoneRadius)
+    blips.vehicle = MakeVehicleBlip(vec3(spawnX, spawnY, spawnZ))
+    blips.shop    = MakeShopBlip()
 
     -- Añadir zona de entrega en el desguace
     AddDeliveryZone()

@@ -72,6 +72,11 @@ activeJob = {
     removedParts = { [partId] = true },
     soldParts    = { [partId] = true },
     totalEarned  = number,
+    -- Datos de la zona seleccionada (para enviar al cliente en startJob)
+    zoneCenterX  = number,
+    zoneCenterY  = number,
+    zoneCenterZ  = number,
+    zoneRadius   = number,
 }
 ]]
 
@@ -103,14 +108,10 @@ RegisterNetEvent('yn-chopshop:server:requestJob', function()
         return
     end
 
-    -- Calcular posición aleatoria dentro de la zona de búsqueda
-    local angle   = math.random() * math.pi * 2.0
-    local radius  = math.random() * Config.SearchZone.radius
-    local center  = Config.SearchZone.center
-    local spawnX  = center.x + radius * math.cos(angle)
-    local spawnY  = center.y + radius * math.sin(angle)
-    local spawnZ  = center.z
-    local model   = Config.Vehicles[math.random(#Config.Vehicles)]
+    -- Seleccionar zona aleatoria y dentro de ella un punto de spawn aleatorio
+    local zone       = Config.SpawnZones[math.random(#Config.SpawnZones)]
+    local spawnPoint = zone.spawns[math.random(#zone.spawns)]
+    local model      = zone.vehicles[math.random(#zone.vehicles)]
 
     -- Marcar trabajo como pendiente de spawn
     activeJob = {
@@ -120,16 +121,21 @@ RegisterNetEvent('yn-chopshop:server:requestJob', function()
         removedParts = {},
         soldParts    = {},
         totalEarned  = 0,
+        zoneCenterX  = zone.center.x,
+        zoneCenterY  = zone.center.y,
+        zoneCenterZ  = zone.center.z,
+        zoneRadius   = zone.radius,
     }
 
     TriggerClientEvent('yn-chopshop:client:spawnVehicle', source, {
-        model = model,
-        x     = spawnX,
-        y     = spawnY,
-        z     = spawnZ,
+        model   = model,
+        x       = spawnPoint.x,
+        y       = spawnPoint.y,
+        z       = spawnPoint.z,
+        heading = spawnPoint.w,
     })
 
-    Log('Spawn solicitado para', source, 'modelo:', model)
+    Log('Spawn solicitado para', source, '| zona:', zone.label, '| modelo:', model)
 end)
 
 -- ─── Vehículo spawneado ───────────────────────────────────────────────────────
@@ -144,7 +150,9 @@ RegisterNetEvent('yn-chopshop:server:vehicleSpawned', function(netId, spawnX, sp
 
     activeJob.netId = netId
 
-    TriggerClientEvent('yn-chopshop:client:startJob', source, netId, spawnX, spawnY, spawnZ)
+    TriggerClientEvent('yn-chopshop:client:startJob', source,
+        netId, spawnX, spawnY, spawnZ,
+        activeJob.zoneCenterX, activeJob.zoneCenterY, activeJob.zoneCenterZ, activeJob.zoneRadius)
     Log('Trabajo iniciado para', source, 'netId:', netId)
 end)
 
