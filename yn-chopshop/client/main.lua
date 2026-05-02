@@ -16,9 +16,10 @@ local job = {
     removing      = false,
 }
 
-local blips           = { vehicle = nil, zone = nil, shop = nil }
-local buyerPed        = nil
-local showingDelivUI  = false  -- estado del TextUI de entrega
+local blips              = { vehicle = nil, zone = nil, shop = nil }
+local buyerPed           = nil
+local showingDelivUI     = false  -- estado del TextUI de entrega
+local playerInTargetVeh  = false  -- true cuando el jugador está dentro del vehículo objetivo
 
 -- ─── Debug ────────────────────────────────────────────────────────────────────
 
@@ -329,6 +330,8 @@ local function FinishJob()
     job.totalEarned   = 0
     job.removing      = false
 
+    playerInTargetVeh = false
+
     Log('Trabajo finalizado')
 end
 
@@ -370,6 +373,46 @@ CreateThread(function()
                 lib.hideTextUI()
                 showingDelivUI = false
             end
+            Wait(1000)
+        end
+    end
+end)
+
+-- ─── Thread: Detección de entrada al vehículo objetivo ───────────────────────
+-- Cuando el jugador se monta en el vehículo robado por primera vez:
+--   · Elimina el blip del coche y el radio de búsqueda del mapa
+--   · Muestra el blip del desguace y activa la ruta GPS hacia él
+
+CreateThread(function()
+    while true do
+        if job.active and not job.atChopShop and job.vehicle then
+            local ped      = PlayerPedId()
+            local inTarget = IsPedInAnyVehicle(ped, false)
+                             and GetVehiclePedIsIn(ped, false) == job.vehicle
+
+            if inTarget and not playerInTargetVeh then
+                playerInTargetVeh = true
+
+                -- Eliminar blips de búsqueda
+                blips.vehicle = ClearBlip(blips.vehicle)
+                blips.zone    = ClearBlip(blips.zone)
+
+                -- Mostrar blip del desguace y marcar ruta GPS
+                if not blips.shop then
+                    blips.shop = MakeShopBlip()
+                end
+                SetNewWaypoint(Config.ChopShop.coords.x, Config.ChopShop.coords.y)
+
+                Log('Jugador montado en vehículo objetivo → blips actualizados')
+
+            elseif not inTarget and playerInTargetVeh then
+                -- Jugador salió del vehículo antes de entregarlo (blips ya actualizados)
+                playerInTargetVeh = false
+            end
+
+            Wait(500)
+        else
+            playerInTargetVeh = false
             Wait(1000)
         end
     end
@@ -465,9 +508,10 @@ RegisterNetEvent('yn-chopshop:client:startJob', function(netId, spawnX, spawnY, 
 
     job.vehicle = vehicle
 
+    -- Solo mostrar blips de búsqueda al inicio.
+    -- El blip del desguace + GPS aparecerán cuando el jugador se monte en el vehículo.
     blips.zone    = MakeZoneBlip(zoneCx, zoneCy, zoneCz, zoneRadius)
     blips.vehicle = MakeVehicleBlip(vec3(spawnX, spawnY, spawnZ))
-    blips.shop    = MakeShopBlip()
 
     lib.notify({ title = _U('job_accepted'), type = 'success', duration = 8000 })
     Log('Trabajo iniciado correctamente. Vehículo entity:', vehicle)

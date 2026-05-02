@@ -261,8 +261,8 @@ RegisterNetEvent('yn-chopshop:server:sellPart', function(partId)
 end)
 
 -- ─── Alerta policial ─────────────────────────────────────────────────────────
--- Ajusta la llamada a los exports de origen_police según su documentación:
--- https://docs.origennetwork.store/origen-police/exports/server-exports
+-- Export correcto de origen_police: SendAlert
+-- Docs: https://docs.origennetwork.store/origen-police/exports/server-exports
 
 RegisterNetEvent('yn-chopshop:server:policeAlert', function(coords)
     local source = source
@@ -273,33 +273,21 @@ RegisterNetEvent('yn-chopshop:server:policeAlert', function(coords)
         return
     end
 
-    -- Llamada al export de origen_police (ajusta los parámetros según la versión instalada)
     local ok, err = pcall(function()
-        exports['origen_police']:createDispatch(source, {
-            type     = 'chopshop',
-            title    = _U('police_alert_title'),
-            message  = _U('police_alert_message'),
-            coords   = { x = coords.x, y = coords.y, z = coords.z },
-            sprite   = 50,
-            color    = 1,
-            scale    = 0.8,
-            jobs     = { 'police' },
+        exports['origen_police']:SendAlert({
+            coords  = vector3(coords.x, coords.y, coords.z),
+            title   = _U('police_alert_title'),
+            type    = 'GENERAL',
+            message = _U('police_alert_message'),
+            job     = 'police',
         })
     end)
 
     if not ok then
-        -- Fallback: intentar con TriggerEvent por si usan un sistema de eventos
-        pcall(function()
-            TriggerEvent('origen_police:server:createDispatch', {
-                message = _U('police_alert_message'),
-                coords  = vector3(coords.x, coords.y, coords.z),
-                jobs    = { 'police' },
-            })
-        end)
-        Log('WARN: export de origen_police falló, se usó fallback de evento. Error:', err)
+        print('[yn-chopshop] ERROR al enviar alerta policial:', tostring(err))
+    else
+        Log('Alerta policial enviada desde', source)
     end
-
-    Log('Alerta policial enviada desde', source)
 end)
 
 -- ─── Desconexión del jugador ──────────────────────────────────────────────────
